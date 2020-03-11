@@ -1,3 +1,1004 @@
+# PROGRAM NAME: NY_New_Constr_Snetiment.BB(bb.update.download, ...)
+# --------------------------------------------------------------------------------------------------------------------------
+# PURPOSE: This program creates the Beige Book corpus and Estimates the Sentiments with SVR
+# --------------------------------------------------------------------------------------------------------------------------
+# OUTPUT: There is no (returned) output, save for a plot, if so desired
+# --------------------------------------------------------------------------------------------------------------------------
+# INPUT: 
+# --------------------------------------------------------------------------------------------------------------------------
+# NOTES: Note that the models are created based on the in.sample.start.date
+#        and the in.sample.end.date.  After you set the in and out points
+#        for the in-sample estimation, you re-estimate the models to obtain
+#        the coefficients and estimation results, based on the sample range.
+# --------------------------------------------------------------------------------------------------------------------------
+
+bb.topics = function(bb.update.download	= TRUE,
+bb.update.estimation	= TRUE,
+bb.update.indices	= TRUE,
+bb.update.months		= 1:12,
+bb.update.years		= 1970:2020,
+in.sample.start.date	= "1970-01-01",
+in.sample.end.date	= "2020-03-05",
+out.sample.end.date	= "2020-03-05")
+
+Sys.setlocale("LC_ALL","English")
+#####################################
+# IN SAMPLE OUT-POINT DETERMINATION #
+#####################################
+!is.null(in.sample.end.date) & !is.null(in.sample.start.date) & !is.null(out.sample.end.date)
+# IN-SAMPLE END DATE #
+######################
+# Attributed month
+####################
+in.sample.start.year		= as.integer(substring(in.sample.start.date, first = 1, last = 4))
+in.sample.start.month		= as.integer(substring(in.sample.start.date, first = 6, last = 7))
+# Set the attributed quarter
+if(in.sample.start.month >= 1  & in.sample.start.month <= 3)  {in.sample.start.quarter	= 1}
+if(in.sample.start.month >= 4  & in.sample.start.month <= 6)  {in.sample.start.quarter	= 2}
+if(in.sample.start.month >= 7  & in.sample.start.month <= 9)  {in.sample.start.quarter	= 3}
+if(in.sample.start.month >= 10 & in.sample.start.month <= 12) {in.sample.start.quarter	= 4}
+# IN-SAMPLE END DATE #
+# Release Week	Days		Attributed Month
+# 1			1-7		-1
+# 2			8-14		-1
+# 3			15-21		-1
+# 4			22-28		0
+# 5			29-31		0
+in.sample.end.year		= as.integer(substring(in.sample.end.date, first = 1, last = 4))
+if (as.integer(substring(in.sample.end.date, first = 9, last = 10)) <= 21) {in.sample.end.month = as.integer(substring(in.sample.end.date, first = 6, last = 7)) - 1}
+if (as.integer(substring(in.sample.end.date, first = 9, last = 10)) > 21)  {in.sample.end.month = as.integer(substring(in.sample.end.date, first = 6, last = 7))}
+# It might be that the Beige Book was released in the beginning of January
+if (in.sample.end.month	== 0) {
+  
+  # First, reset the attributable month
+  in.sample.end.month	= 12
+  
+  # Set the attributable year back to the previous year
+  in.sample.end.year	= in.sample.end.year - 1
+}
+# Set the attributed quarter
+if(in.sample.end.month >= 1  & in.sample.end.month <= 3)  {in.sample.end.quarter	= 1}
+if(in.sample.end.month >= 4  & in.sample.end.month <= 6)  {in.sample.end.quarter	= 2}
+if(in.sample.end.month >= 7  & in.sample.end.month <= 9)  {in.sample.end.quarter	= 3}
+if(in.sample.end.month >= 10 & in.sample.end.month <= 12) {in.sample.end.quarter	= 4}
+# OUT-SAMPLE END DATE #
+out.sample.end.year		= as.integer(substring(out.sample.end.date, first = 1, last = 4))
+if (as.integer(substring(out.sample.end.date, first = 9, last = 10)) <= 21) {out.sample.end.month = as.integer(substring(out.sample.end.date, first = 6, last = 7)) - 1}
+if (as.integer(substring(out.sample.end.date, first = 9, last = 10)) > 21)  {out.sample.end.month = as.integer(substring(out.sample.end.date, first = 6, last = 7))}
+if (out.sample.end.month	== 0) {
+  
+  # First, reset the attributable month
+  out.sample.end.month	= 12
+  
+  # Set the attributable year back to the previous year
+  out.sample.end.year	= out.sample.end.year - 1
+}
+# Set the attributed quarter
+if(out.sample.end.month >= 1  & out.sample.end.month <= 3)  {out.sample.end.quarter	= 1}
+if(out.sample.end.month >= 4  & out.sample.end.month <= 6)  {out.sample.end.quarter	= 2}
+if(out.sample.end.month >= 7  & out.sample.end.month <= 9)  {out.sample.end.quarter	= 3}
+if(out.sample.end.month >= 10 & out.sample.end.month <= 12) {out.sample.end.quarter	= 4}
+
+# BEIGE BOOK DOWNLOAD, CONVERSION, CLEANING, PROCESSING & CORPUS CREATION #
+setwd('C:/bb/data')
+folders	= c("_New_York")
+lapply(folders, dir.create)
+new.folders	= as.character(bb.update.years)
+# Create the new directories
+for (i in 1:length(folders)) {
+  
+  # Set the working directory
+  iter.wd	= paste('C:/bb/data/', folders[i], sep = "")
+  setwd(iter.wd)
+  
+  # Create the new folders
+  for (j in 1:length(new.folders)) {
+    
+    # Create the new folders
+    dir.create(paste(iter.wd, "/", new.folders[j], sep = ""))
+  }
+}  
+fed.name	= c("_New_York")
+fed.acron	= c("ny")
+
+# Set up the looping restrictions for the Months and Years
+Months		= as.character(bb.update.months)
+Years		= as.character(bb.update.years)
+# Change the Months vector to include leading zeros
+Months	= ifelse(nchar(Months) == 1, paste("0", Months, sep = ""), Months)
+# Create all of the links and put them in a vector
+fed.links	= NULL
+
+for (i in 1:length(fed.acron)) {
+  
+  for (j in 1:length(Years)) {
+    
+    for (k in 1:length(Months)) {
+      
+      #fed.links	= c(fed.links, paste("https://www.federalreserve.gov/monetarypolicy/beigebook/beigebook", Years[j], Months[k], ".htm", sep = ""))
+      fed.links	= c(fed.links, paste("http://www.minneapolisfed.org/bb/reports/", 
+                                     Years[j], "/", substring(Years[j], first = 3, last = 4), 
+                                     "-", Months[k], "-", fed.acron[i], ".cfm", 
+                                     sep = ""))
+    }
+  }
+}
+# https://www.minneapolisfed.org/beige-book-reports/2020/2020-03-ny
+
+# Open the windows progress bar
+i.stop = 1; I = length(fed.links); pb.i = winProgressBar(title = "progress bar", min = 0, max = I, width = 400); clkStrt.i = proc.time()
+# Set the options to hide error messages
+options(show.error.message = FALSE)
+options(warn = -1)
+for (i in 1:I) {
+  
+  # Update the (i) progress bar
+  clkElps.i = proc.time() - clkStrt.i; clkRemn.i = round((clkElps.i * (100 - (i/I*100)) / (i/I*100)) / 60, 0); setWinProgressBar(pb.i, i, title = paste(round(i/I*100, 0), "% done - about", clkRemn.i, "minutes remaining. Iteration ", i, " of ", I))
+  
+  # Here we set up a while loop to download the m-th link on the page.  If the download fails, 
+  # we keep trying until we have success.
+  fed.ith.linkPage.whileLoop			= 1
+  fed.ith.linkPage.whileLoop.iteration	= 1
+  
+  while (fed.ith.linkPage.whileLoop == 1) {
+    
+    # Download the beige book article
+    fed.ith.linkPage	= url(fed.links[i])
+    
+    # Attempt to extract the HTML code from the m-th link page. Note that we use try here.
+    fed.ith.linkHTML	= try(readLines(fed.ith.linkPage))
+    
+    # Make sure that the download worked properly
+    if (class(fed.ith.linkHTML) == "try-error") {
+      
+      # If we end up here, then the initial download attempt failed, and we need to try again.
+      # We print the iteration of our attempt to the console and then let the system rest
+      # for a moment before trying again.
+      cat("Connection failure number: ", fed.ith.linkPage.whileLoop.iteration, ". Iteration identification: i = ", i, "\n", sep = "")
+      fed.ith.linkPage.whileLoop.iteration	= fed.ith.linkPage.whileLoop.iteration + 1
+      Sys.sleep(1)
+      
+      if (fed.ith.linkPage.whileLoop.iteration >= 2) {
+        
+        # If we've been trying to download this page without success for 10 times (twice),
+        # create a blank HTML page, skip this iteration, and move on. 
+        fed.ith.linkPage.whileLoop	= 0
+        fed.ith.linkHTML			= ""
+        fed.ith.linkHTML.col		= paste(fed.ith.linkHTML, collapse = "")
+      }
+      # Ensure that all connections are closed
+      closeAllConnections()
+      
+    } else {
+      
+      # If we end up here, then the download was a success, and we can break out of the while loop.
+      fed.ith.linkPage.whileLoop	= 0
+      fed.ith.linkHTML.col		= paste(fed.ith.linkHTML, collapse = "")
+      close(fed.ith.linkPage)
+      
+      # Ensure that all connections are closed
+      closeAllConnections()
+    }
+  }
+  # At this point the HTML is in hand, and we can identify whether or not data is present for this particular month
+  if (nchar(fed.ith.linkHTML.col) == 0 | length(grep("<h2>File Not Found</h2>", fed.ith.linkHTML.col)) > 0) {
+    
+    # If we end up here, then there is no data for this particular link. As such, we just move to the next iteration
+    next
+    
+  } else {
+    
+    # If we end up here, then there IS data for this particular link, and we therefore write the data to disk
+    link.year	= substring(fed.links[i], first = 42, last = 45)
+    link.month	= substring(fed.links[i], first = 50, last = 51)
+    link.acron	= substring(fed.links[i], first = 53, last = 54)
+    file.name	= substring(fed.links[i], first = 47, last = 54)
+    link.name	= fed.name[match(link.acron, fed.acron)]
+    
+    # Set the working directory accordingly
+    setwd(paste('C:/bb/data/', link.name, "/", link.year, sep = ""))
+    
+    # Write the downloaded HTML to disk
+    write(fed.ith.linkHTML, file = paste(file.name, ".html", sep = ""))
+  }
+}
+# Close the windows progress bar
+close(pb.i)
+# Reset the options to show error messages
+options(show.error.message = TRUE)
+options(warn = 0)
+
+# CONVERSION & CLEANING #
+# Convert all of the HTML data files to text data files
+base.wd	= 'C:/bb/data'
+fed.name	= c("_New_York")
+fed.acron	= c("ny")
+years		= as.character(bb.update.years)
+for (i in 1:length(fed.name)) {
+  
+  for (j in 1:length(years)) {
+    
+    # Set the working directory
+    setwd(paste(base.wd, "/", fed.name[i], "/", years[j], sep = ""))
+    
+    # Convert HTML to text
+    system(paste('C:/bb/NirSoft/HTMLasText/HtmlAsText.exe', '/run', 'C:/bb/NirSoft/HTMLasText/fed_convert.cfg'))
+  }
+}
+
+# Eliminate residual text
+for (i in 1:length(fed.name)) {
+  
+  for (j in 1:length(years)) {
+    
+    # Set the working directory
+    setwd(paste(base.wd, "/", fed.name[i], "/", years[j], sep = ""))
+    
+    # Identify which files end in .txt
+    txt.id	= which(substr(dir(), start = (nchar(dir()) - 2), stop = nchar(dir())) == "txt")
+    
+    # Find out the file names for the country
+    txt.names	= dir()[txt.id]
+    
+    for (k in 1:length(txt.id)) {
+      
+      # Read the lines of each .htm file into a character vector
+      txt.k		= readLines(txt.names[k], warn = F)
+      
+      # Identify the first line to remove data at
+      first.id	= grep("&lsaquo; Back to Archive Search", txt.k) + 1
+      
+      # Remove the lines prior to the first removal id
+      txt.k		= txt.k[first.id:length(txt.k)]
+      
+      # Identify the line with the date information
+      ini.date.id	= grep("Beige Book", txt.k)[1] + 2
+      
+      # Find the first non-zero character-length line in the text file.
+      for (m in ini.date.id:length(txt.k)) {
+        if (nchar(txt.k[m]) > 0) {
+          date.id	= m
+          break
+        }
+      }
+      # Extract and format the date information
+      txt.k.date	= txt.k[date.id]
+      txt.k.date	= gsub("[[:punct:]]", "", txt.k.date)
+      txt.k.date	= strsplit(txt.k.date, "+[[:blank:]]+")[[1]]
+      txt.k.date	= as.Date(paste(txt.k.date, collapse = "-"), format = "%B-%d-%Y")
+      
+      # Identify the (approximate) second line to remove data at
+      #ini.second.id	= date.id + 1
+      ini.second.id	= grep("Real Estate and Construction", txt.k) + 1
+      
+      # Find the first non-zero character-length line in the text file.
+      for (m in ini.second.id:length(txt.k)) {
+        if (nchar(txt.k[m]) > 0) {
+          second.id	= m
+          break
+        }
+      }
+      # Remove the lines prior to the first removal id
+      txt.k		= txt.k[second.id:length(txt.k)]
+      
+      # Identify the (approximate) last line for data removal
+      ini.last.id	= grep("Banking and Finance", txt.k)[1] - 1
+      
+      # Find the first non-zero character-length line in the text file.
+      for (m in ini.last.id:1) {
+        if (nchar(txt.k[m]) > 0) {
+          last.id	= m
+          break
+        }
+      }
+      # Remove the lines after the last removal id
+      txt.k		= txt.k[1:last.id]
+      
+      # Write the Beige Book to disk
+      write(txt.k, file = paste("_Beige_Book_", substring(txt.names[k], first = (nchar(txt.names[k]) - 5), last = (nchar(txt.names[k]) - 4)), "_", txt.k.date, "_Formatted.txt", sep = ""))
+    }
+  }
+}
+# DIRECTORY CLEANING #
+for (i in 1:length(fed.name)) {
+  
+  for (j in 1:length(years)) {
+    
+    # Set the working directory
+    setwd(paste(base.wd, "/", fed.name[i], "/", years[j], sep = ""))
+    
+    # Identify which files end in Formatted.txt
+    txt.id	= which(substr(dir(), start = (nchar(dir()) - 12), stop = nchar(dir())) == "Formatted.txt")
+    
+    # Find out the file names for the country
+    txt.names	= dir()[txt.id]
+    
+    for (k in 1:length(txt.id)) {
+      
+      # Read the lines of each .htm file into a character vector
+      txt.k		= readLines(txt.names[k], warn = F)
+      
+      if (length(txt.k) <= 3) {
+        
+        # Remove those files from the hard drive
+        file.remove(txt.names[k])
+      }
+    }
+  }
+}
+# FORMATTED.TXT FURTHER FORMATTING #
+for (i in 1:length(fed.name)) {
+  
+  for (j in 1:length(years)) {
+    
+    # Set the working directory
+    setwd(paste(base.wd, "/", fed.name[i], "/", years[j], sep = ""))
+    
+    # Identify which files end in Formatted.txt
+    txt.id	= which(substr(dir(), start = (nchar(dir()) - 12), stop = nchar(dir())) == "Formatted.txt")
+    
+    if (length(txt.id) == 0) {
+      
+      next
+    }
+    
+    # Find out the file names for the country
+    txt.names	= dir()[txt.id]
+    
+    for (k in 1:length(txt.names)) {
+      
+      # Read the lines of each .htm file into a character vector
+      txt.k		= readLines(txt.names[k], warn = F)
+      
+      # In this step we ensure that the trailing line,
+      # "Previous Report | Next Report | National Summary | Return to Archive"
+      # is removed from the file.  We proceed through each of the four options
+      # recalling that sometimes this line is split across several lines in the file.
+      # Also note that there are multiple ways that these tags come up in the file; 
+      # sometimes they are labeled "Previous Report," while sometimes they are labeled
+      # "Previous Summary."
+      if (length(grep("Previous Report \\| ", txt.k)) > 0) {txt.k	= txt.k[-grep("Previous Report \\| ", txt.k)]}
+      if (length(grep("Previous Summary \\| ", txt.k)) > 0) {txt.k	= txt.k[-grep("Previous Summary \\| ", txt.k)]}
+      if (length(grep("Next Report \\| ", txt.k)) > 0) {txt.k	= txt.k[-grep("Next Report \\| ", txt.k)]}
+      if (length(grep("Next Summary \\| ", txt.k)) > 0) {txt.k	= txt.k[-grep("Next Summary \\| ", txt.k)]}
+      if (length(grep("National Summary \\| ", txt.k)) > 0) {txt.k	= txt.k[-grep("National Summary \\| ", txt.k)]}
+      if (length(grep("Return to Archive", txt.k)) > 0) {txt.k	= txt.k[-grep("Return to Archive", txt.k)]}
+      
+      # There are some empty lines at the end of the file which need to be removed.
+      if (nchar(txt.k[length(txt.k)]) == 0) {
+        
+        # Find the first non-zero character-length line in the text file.
+        for (m in length(txt.k):1) {
+          if (nchar(txt.k[m]) > 0) {
+            last.id	= m
+            break
+          }
+        }
+        # Remove the lines after the last removal id
+        txt.k		= txt.k[1:last.id]
+      }
+      
+      # Some of the files have headings listing the areas of the economy which the
+      # next subsection of the report focus on.  These lines are characterized as
+      # having fewer than 7 words (average word length of 5 characters implies a total
+      # of 35 characters in the line), beginning with a capital letter, and ending
+      # WITHOUT a period.  They need to be removed from the file.
+      if (length(which(nchar(txt.k) > 0 & nchar(txt.k) < 35 & !is.na(match(substring(txt.k, first = 1, last = 1), LETTERS)) & substring(sapply(lapply(strsplit(txt.k, NULL), rev), paste, collapse=""), first = 1, last = 1) != ".")) > 0) {
+        
+        txt.k	= txt.k[-which(nchar(txt.k) > 0 & nchar(txt.k) < 35 & !is.na(match(substring(txt.k, first = 1, last = 1), LETTERS)) & substring(sapply(lapply(strsplit(txt.k, NULL), rev), paste, collapse=""), first = 1, last = 1) != ".")]
+      }
+      
+      # In some of the later years, the Federal Reserve National Summary Beige Books
+      # have meta summaries in the heading of the book.  They are separated from the
+      # rest of the file using a line of "=" characters.  
+      if (length(grep("====", txt.k)) > 0) {
+        
+        # If we end up here, then there is a heading to the file.
+        txt.k	= txt.k[(grep("====", txt.k) + 1):length(txt.k)]
+        
+        # Remove any leading empty lines
+        for (m in 1:length(txt.k)) {
+          if (nchar(txt.k[m]) > 0) {
+            first.id	= m
+            break
+          }
+        }
+        # Remove the lines prior to the first removal id
+        txt.k		= txt.k[first.id:length(txt.k)]
+      }
+      
+      # Rewrite the Beige Book to disk
+      write(txt.k, file = txt.names[k], append = F)
+    }
+  }
+}
+
+
+# CORPUS CREATION #
+require(tm)
+setwd("C:/bb/__R_Data/Processed_Corpora")
+fed.name				= c("_New_York")
+nat.name				= c("__National")
+fed.acron				= c("ny")
+nat.acron				= c("ny")
+years					= as.character(1970:(bb.update.years[length(bb.update.years)]))
+
+BB.documents	= dir()
+BB.corpus		= NULL
+BB.dates		= NULL
+BB.acrons		= NULL
+BB.folders		= NULL
+BB.banks		= NULL
+BB.months		= NULL
+BB.years		= NULL
+BB.quarters		= NULL
+
+# Open the windows progress bar
+I = length(BB.documents); pb.i = winProgressBar(title = "progress bar", min = 0, max = I, width = 400); clkStrt.i = proc.time()
+
+for (i in 1:I) {
+  
+  # Update the (i) progress bar
+  clkElps.i = proc.time() - clkStrt.i; clkRemn.i = round((clkElps.i * (100 - (i/I*100)) / (i/I*100)) / 60, 0); setWinProgressBar(pb.i, i, title = paste(round(i/I*100, 0), "% done - about", clkRemn.i, "minutes remaining. Iteration ", i, " of ", I))
+  
+  # Create the meta information
+  BB.i.date		= substring(BB.documents[i], first = 16, last = 25)
+  BB.i.acron		= substring(BB.documents[i], first = 13, last = 14)
+  BB.i.folder		= fed.name[match(BB.i.acron, fed.acron)]
+  BB.i.bank		= gsub("_", " ", BB.i.folder)
+  BB.i.year		= as.integer(substring(BB.documents[i], first = 16, last = 19))
+  
+  # Remove any remaining leading whitespace from bank name
+  if (substring(BB.i.bank, first = 1, last = 1) == " ") {BB.i.bank = sub("[[:blank:]]+", "", BB.i.bank)}
+  
+  # Attributed month
+  ####################
+  # Because reports are prepared over the course of the month prior to the 
+  # release date of the Beige Book report, the actual information in the report
+  # reflects economic activity during the six to eight weeks before the 
+  # release of the Beige Book.  As such, I followed the following schema
+  # when assigning attributable months to the data
+  # Release Week	Days		Attributed Month
+  # 1			1-7		-1
+  # 2			8-14		-1
+  # 3			15-21		-1
+  # 4			22-28		0
+  # 5			29-31		0
+  if (as.integer(substring(BB.documents[i], first = 24, last = 25)) <= 21) {BB.i.month = as.integer(substring(BB.documents[i], first = 21, last = 22)) - 1}
+  if (as.integer(substring(BB.documents[i], first = 24, last = 25)) > 21)  {BB.i.month = as.integer(substring(BB.documents[i], first = 21, last = 22))}
+  
+  # It might be that the Beige Book was released in the beginning of January, implying that 
+  # the data it contains pertains to December of the previous year.  If this is the case, then 
+  # the attributed month, calculated in the if() statement above, will be set to zero.  Obviously,
+  # this is not desireable.  
+  if (BB.i.month	== 0) {
+    
+    # First, reset the attributable month
+    BB.i.month	= 12
+    
+    # Set the attributable year back to the previous year
+    BB.i.year	= BB.i.year - 1
+  }
+  # Set the attributed quarter
+  if(BB.i.month >= 1  & BB.i.month <= 3)  {BB.i.quarter	= 1}
+  if(BB.i.month >= 4  & BB.i.month <= 6)  {BB.i.quarter	= 2}
+  if(BB.i.month >= 7  & BB.i.month <= 9)  {BB.i.quarter	= 3}
+  if(BB.i.month >= 10 & BB.i.month <= 12) {BB.i.quarter	= 4}
+  
+  # Deposit the meta information
+  BB.dates		= c(BB.dates, BB.i.date)
+  BB.acrons		= c(BB.acrons, BB.i.acron)
+  BB.folders		= c(BB.folders, BB.i.folder)
+  BB.banks		= c(BB.banks, BB.i.bank)
+  BB.months		= c(BB.months, BB.i.month)
+  BB.years		= c(BB.years, BB.i.year)
+  BB.quarters		= c(BB.quarters, BB.i.quarter)
+  
+  load(BB.documents[i])
+  BB.corpus		= c(BB.corpus, as.character(processed.BB$token.dict.document))
+}
+# Close the windows progress bar
+close(pb.i)
+
+# Corpus creation
+BB.corpus	= Corpus(VectorSource(BB.corpus))
+
+# Meta deposit at the corpora level
+meta(BB.corpus, tag = "Date")		= as.Date(BB.dates, format = "%Y-%m-%d")
+meta(BB.corpus, tag = "BankAcron")	= BB.acrons
+meta(BB.corpus, tag = "Folder")	= BB.folders
+meta(BB.corpus, tag = "Bank")		= BB.banks
+meta(BB.corpus, tag = "Month")	= BB.months
+meta(BB.corpus, tag = "Year")		= BB.years
+meta(BB.corpus, tag = "Quarter")	= BB.quarters
+
+
+# Separate the corpa into regional and national corpora
+nat.BB.corpus	= BB.corpus[which(meta(BB.corpus)$BankAcron == "ny")]
+
+# Save the corpora 
+setwd("C:/bb/__R_Data")
+save(nat.BB.corpus, file = paste("National_BB_Corpus_File_", substring(strsplit(as.character(Sys.Date()), "-")[[1]][1], first = 3, last = 4), paste(strsplit(as.character(Sys.Date()), "-")[[1]][2:3], collapse = ""), ".Rdata", sep = ""))
+
+# BEIGE BOOK Sentiment ESTIMATION #
+library(tm)
+library(cluster)
+library(leaps)
+library(lmtest)
+
+### CORPORA LOADING ###
+# Load the latest corpora into memory
+setwd("C:/bb/__R_Data")
+
+# Import the processed corpora
+natCorpus.files = dir()[which(substring(dir(), first = 1, last = 24) == "National_BB_Corpus_File_")]; natCorpus.name = natCorpus.files[which.max(as.integer(substring(natCorpus.files, first = nchar(natCorpus.files) - 11, last = nchar(natCorpus.files) - 6)))]; load(file = natCorpus.name);
+
+# Set the district names
+fed.name				= c("New_York")
+district.name			= c("New_York")
+district.abbr			= c("ny")
+
+
+# Create the master list for depositing the results
+BB.RGDP.fed.district.estimates	= list(nat.BB.corpus		= list())
+
+# Select the corpus for analysis
+nat.corpus	= nat.BB.corpus
+
+###########################
+# DATA FRAMES FOR DEPOSIT #
+###########################
+BB.RGDP.fed.district.estimates[[k]]	= list(New_York							= NULL)
+
+##############
+##############
+# CLUSTERING #
+##############
+##############
+nat.tdm.agCom = agnes(nat.svd.results, diss = F, metric = "manhattan", stand = T, method = "complete")
+# However, the standard visualization technique for hierarchical methods is through the use of dendrograms:
+nat.tdm.dagCom = as.dendrogram(as.hclust(nat.tdm.agCom))
+windows()
+plot(nat.tdm.dagCom, horiz = T, center = T, nodePar = list(lab.cex = 0.5, pch = NA), 
+     xlab = "Height", ylab = "Agglomerative Hierarchical Clustering", 
+     main = paste(meta(nat.corpus)$Bank[1], ": Complete Linkage Dendrogram", sep = ""))
+##############
+##############
+
+################################################################################
+# Create the Weighted Term-Document Matrix via (default SAS) Entropy Weighting #
+################################################################################
+
+# The notation is pulled from the SAS manual. Note that we only use the top 200 terms 
+# as the leaps/regsubsets exhaustive search usually only chooses variables in and around
+# the top 150 terms.  The other terms are therefore useless for our purposes.
+nat.dtm.matrix				= as.matrix(nat.dtm)
+top200.terms				= sort(apply(nat.dtm.matrix, 2, sum), decreasing = T)[1:200]
+nat.dtm.matrix.top200		= nat.dtm.matrix[, match(names(top200.terms), colnames(nat.dtm.matrix))]
+nat.dtm.matrix.aij			= nat.dtm.matrix.top200[, which(apply(nat.dtm.matrix.top200, 2, sum) != 0)]
+nat.dtm.matrix.gi			= as.vector(apply(nat.dtm.matrix.aij, 2, sum))
+nat.dtm.matrix.n			= dim(nat.dtm.matrix.aij)[1]
+nat.dtm.matrix.pij			= nat.dtm.matrix.aij %*% diag(1 / nat.dtm.matrix.gi)
+nat.dtm.matrix.Lij			= log(nat.dtm.matrix.aij + 1, base = 2)
+nat.dtm.matrix.Gi			= 1 + 1 / log(nat.dtm.matrix.n, base = 2) * apply(nat.dtm.matrix.pij * log(nat.dtm.matrix.pij, base = 2), 2, sum, na.rm = T)
+nat.dtm.weighted			= nat.dtm.matrix.Lij %*% diag(nat.dtm.matrix.Gi)
+colnames(nat.dtm.weighted)	= colnames(nat.dtm.matrix.aij)
+nonempty.col				= which(apply(nat.dtm.weighted, 2, sum) != 0)
+nonempty.col.names			= colnames(nat.dtm.weighted)[nonempty.col]
+nat.dtm.weighted			= nat.dtm.weighted[, nonempty.col]
+colnames(nat.dtm.weighted)	= nonempty.col.names
+
+##### LDA latent Dirichlet allocation#####
+# Two key principles:
+# 1. Every document is a mixture of topics.
+# 2. Every topic is a mixture of words.
+library(topicmodels)
+library(dplyr)
+library(tidytext)
+nat_lagged.dtm = nat.dtm[-(1:2),]
+
+library(ldatuning)
+sampling <- sample(1:(I-2), replace = FALSE,size = nrow(nat_lagged.dtm)*0.8 )
+train_data <- nat_lagged.dtm[sampling,]
+test_data <- nat_lagged.dtm[-sampling,]
+
+##plot the metrics to get number of topics
+system.time({
+  tunes <- FindTopicsNumber(
+    dtm = train_data,
+    topics = c(2:15),
+    metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010"),
+    method = "Gibbs",
+    control = list(seed = 12345),
+    mc.cores = 4L,
+    verbose = TRUE
+  )
+})
+
+FindTopicsNumber_plot(tunes)
+
+##Using perplexity for hold out set
+perplexity_df <- data.frame(train=numeric(), test=numeric())
+topics <- c(2:15)
+burnin = 100
+iter = 1000
+keep = 50
+
+set.seed(12345)
+for (i in topics){
+  
+  fitted <- LDA(train_data, k = i, method = "Gibbs",
+                control = list(burnin = burnin, iter = iter, keep = keep) )
+  perplexity_df[i,1] <- perplexity(fitted, newdata = train_data)
+  perplexity_df[i,2]  <- perplexity(fitted, newdata = test_data) 
+}
+
+remove.packages("ggplot2") # Unisntall ggplot
+install.packages("ggplot2") # Install it again
+library(ggplot2) # Load the librarie (you have to do this one on each new session)
+##plotting the perplexity of both train and test
+
+g <- ggplot(data=perplexity_df, aes(x= as.numeric(row.names(perplexity_df)))) + labs(y="Perplexity",x="Number of topics") + ggtitle("Perplexity of hold out  and training data")
+g <- g + geom_line(aes(y=test), colour="red")
+g <- g + geom_line(aes(y=train), colour="green")
+g
+
+#----------------5-fold cross-validation, different numbers of topics----------------#
+folds <- 5
+splitfolds <- sample(1:folds, (I-2), replace = TRUE)
+candidate_k <- c(2:15) # candidates for how many topics
+#clusterExport(cluster, c("train_set", "burnin", "iter", "keep", "splitfolds", "folds", "candidate_k"))
+
+# we parallelize by the different number of topics.  A processor is allocated a value
+# of k, and does the cross-validation serially.  This is because it is assumed there
+# are more candidate values of k than there are cross-validation folds, hence it
+# will be more efficient to parallelise  
+library(foreach)
+library(doParallel)
+system.time({
+  results <- foreach(j = 1:length(candidate_k), .combine = rbind) %dopar%{
+    k <- candidate_k[j]
+    results_1k <- matrix(0, nrow = folds, ncol = 2)
+    colnames(results_1k) <- c("k", "perplexity")
+    for(i in 1:folds){
+      train_set <- nat_lagged.dtm[splitfolds != i , ]
+      valid_set <- nat_lagged.dtm[splitfolds == i, ]
+      
+      fitted <- LDA(train_set, k = k, method = "Gibbs",
+                    control = list(burnin = burnin, iter = iter, keep = keep) )
+      results_1k[i,] <- c(k, perplexity(fitted, newdata = valid_set))
+    }
+    return(results_1k)
+  }
+})
+
+#stopCluster(cluster)
+
+results_df <- as.data.frame(results)
+
+ggplot(results_df, aes(x = k, y = perplexity)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("5-fold cross-validation of topic modeling with the Beige Books dataset",
+          "(ie five different models fit for each candidate number of topics)") +
+  labs(x = "Candidate number of topics", y = "Perplexity when fitting the trained model to the hold-out set")
+
+####### LDA tuning ########
+library(ldatuning)
+result.by.10 <- FindTopicsNumber(
+  nat_lagged.dtm,
+  topics = seq(from = 2, to = 52, by = 10),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  mc.cores = 2L,
+  verbose = TRUE
+)
+FindTopicsNumber_plot(result)
+FindTopicsNumber_plot(result.by.10)
+result.by.5 <- result[seq(1, 199, 5),]
+FindTopicsNumber_plot(result.by.5)
+
+
+which.min(result$Arun2010)
+which.min(result$CaoJuan2009)
+which.max(result$Deveaud2014)
+which.max(result$Griffiths2004)
+
+
+# This takes some time
+#View(tidy(nat_lagged.corpus))
+bb.lda.12 <- LDA(nat_lagged.dtm, k = 12, control = list(seed = 1234))
+
+# why seed?
+# if seed not specified, would use as.integer(Sys.time())
+# note the order of the words
+library(tm)
+#Terms(nat_lagged.dtm)
+
+# Where to start? With first word every time? That would bias the results.
+# Specifying a random seed, but the same random seed, can make results
+# more predictable.
+
+# β = per-topic-per-word probabilities
+# "probability of that term being generated from that topic"
+# γ = per-document-per-topic (used later on)
+require(reshape2)
+bb.topics.12 <- tidy(bb.lda.12, matrix = "beta")
+
+# picture time!
+library(ggplot2)
+
+bb.top.terms <- bb.topics.12 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# let's see words in each topic
+bb.top.terms %>%
+  # why again is next line needed? Covered this in earlier
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+library(tidyr)
+library(tibble)
+# which words had the greatest difference between the topics?
+beta_spread <- bb.topics.12 %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%    # We may run into an error here. Why?
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2 / topic1))
+
+beta_spread
+
+# now let's do document-topic probabilities
+# γ = per-document-per-topic probabilities
+# "estimated proportion of words from that document that are generated from that topic"
+bb2_lda_documents <- tidy(bb2_lda, matrix = "gamma")
+
+
+###################################
+# Load the New Construction Sales #
+###################################
+# Set the working directory to obtain the data
+setwd("C:/bb/data")
+bea.rgdp.grwth.rts	<- read.csv("NCS_70Q1to19Q4.csv", header = TRUE, stringsAsFactors = FALSE)
+Growth_Rate <- bea.rgdp.grwth.rts[,2]
+
+# Create Dummy for Month of the quarter
+month_2 <- as.numeric(BB.months == 2  | BB.months == 5 | BB.months == 8  | BB.months == 11)
+month_3 <- as.numeric(BB.months == 3  | BB.months == 6  | BB.months == 9  | BB.months == 12)
+bea.rgdp.grwth.rts			= cbind(bea.rgdp.grwth.rts, month_2, month_3)
+
+month_2 = month_2[-(1:2)]
+month_3 = month_3[-(1:2)]
+bea.rgdp.grwth.rts = bea.rgdp.grwth.rts[-(1:2),]
+
+
+# Load the New Construction Sales growth rate data
+bea.rgdp.grwth.rts	<- read.csv("NCS_70Q1to19Q4.csv", header = TRUE, stringsAsFactors = FALSE)
+Growth_Rate <- bea.rgdp.grwth.rts[,2]
+
+# Create Dummy for Month of the quarter
+month_2 <- as.numeric(BB.months == 2  | BB.months == 5 | BB.months == 8  | BB.months == 11)
+month_3 <- as.numeric(BB.months == 3  | BB.months == 6  | BB.months == 9  | BB.months == 12)
+
+bea.rgdp.grwth.rts			= cbind(bea.rgdp.grwth.rts, month_2, month_3)
+
+# Add columns with the year and quarter data
+month_2 = month_2[-(1:2)]
+month_3 = month_3[-(1:2)]
+bea.rgdp.grwth.rts = bea.rgdp.grwth.rts[-(1:2),]
+
+##########################################################################
+### Load other time series, that may determine new construction prices ###
+##########################################################################
+# Load intial claims for unemployment insurance (weekly average for month)
+JC.monthly	<- read.csv("initialclaim.csv", header = TRUE, stringsAsFactors = FALSE)
+JC.monthly <- JC.monthly[,2]
+JC.monthly <- diff(log(JC.monthly))
+
+# Load monthly industrial production growth
+IP.monthly	<- read.csv("IP.csv", header = TRUE, stringsAsFactors = FALSE)
+IP.monthly <- IP.monthly[,2]
+IP.monthly <- diff(log(IP.monthly))
+
+# Load (growth in) real personal income less transfer receipts
+I.monthly	<- read.csv("RIT.csv", header = TRUE, stringsAsFactors = FALSE)
+I.monthly <- I.monthly[,2]
+I.monthly <- diff(log(I.monthly))
+
+# Load monthly real manufacturing and trade sales
+MT.monthly	<- read.csv("RMT.csv", header = TRUE, stringsAsFactors = FALSE)
+MT.monthly <- MT.monthly[,2]
+MT.monthly <- diff(log(MT.monthly))
+
+# Load monthly employees and non-agricultural payrolls (EM)
+EM.monthly	<- read.csv("payroll.csv", header = TRUE, stringsAsFactors = FALSE)
+EM.monthly <- EM.monthly[,2]
+EM.monthly <- diff(log(EM.monthly))
+############################################################################
+
+# Create data frame with label and features
+Data_y_12lda_ann <- data.frame(cbind(bea.rgdp.grwth.rts, gammaDF))
+
+# Drop Date
+Data_y_12lda_ann <- within(Data_y_12lda_ann, rm("Date"))
+
+### Merge the data with MONTH 2 and 3 Dummy variables ###
+Data_y_12lda_month_2 <-  month_2*(Data_y_12lda_ann)
+Data_y_12lda_month_2 <- within(Data_y_12lda_month_2, rm("Growth_Rate", "month_2", "month_3"))
+columns_m2 <- c("X1"="XX1", "X2"="XX2", "X3"="XX3", "X4"="XX4", "X5"="XX5", "X6"="XX6", "X7"="XX7", "X8"="XX8", "X9"="XX9",
+                "X10"="XX10", "X11"="XX11", "X12"="XX12")
+colnames(Data_y_12lda_month_2) <- columns_m2
+
+Data_y_12lda_month_3 =  month_3*(Data_y_12lda_ann)
+Data_y_12lda_month_3 <- within(Data_y_12lda_month_3, rm("Growth_Rate", "month_2", "month_3"))
+columns_m3 <- c("X1"="XXX1", "X2"="XXX2", "X3"="XXX3", "X4"="XXX4", "X5"="XXX5", "X6"="XXX6", "X7"="XXX7", "X8"="XXX8", "X9"="XXX9",
+                "X10"="XXX10", "X11"="XXX11", "X12"="XXX12")
+colnames(Data_y_12lda_month_3) <- columns_m3
+
+Data_y_12lda_months = cbind(Data_y_12lda_ann,
+                            Data_y_12lda_month_2,
+                            Data_y_12lda_month_3)
+
+
+#Lin Reg on full LDA set of variables
+lda_full_var_formula	<-as.formula(paste("Growth_Rate", paste(names(Data_y_12lda_months)[-match(c("Date"), names(bestSubset.grwth.dat.merged), nomatch = 0)], sep = "", collapse = " + "), sep = " ~ "))
+lda_full_var_formula
+lda_full_var_formula.lm  <- lm(formula = lda_full_var_formula, data = Data_y_12lda_months)
+#Make predictions on full LDA set of variables
+predictY_full_linregress <- predict(lda_full_var_formula.lm,Data_y_12lda_months)
+
+# RMSE
+rmse <- function(errval)
+{
+  val = sqrt(mean(errval^2))
+  return(val)
+}
+
+# Error in full LDA set linear regression model
+errval_full <- lda_full_var_formula.lm$residuals  # same as data$Y - predictedY
+linregress_fullset_RMSE <- rmse(errval_full)   
+print(paste('lda_full_lin_regress RMSE = ', 
+            linregress_fullset_RMSE))
+
+# Backward Selection
+library(leaps)
+bestSubset.lm				<- regsubsets(x = lda_full_var_formula, data = Data_y_12lda_months, intercept = T, really.big = T, nvmax = bb.num.terms, method = "backward")
+bestSubset.finalVars		<- names(which(summary(bestSubset.lm)$which[dim(summary(bestSubset.lm)$which)[1], -1]))
+bestSubset.finalVars
+
+# Create a linear regression model
+lda_bestSubset_reg_formula			<- as.formula(paste("Growth_Rate", paste(c("1", bestSubset.finalVars), sep = "", collapse = " + "), sep = " ~ "))
+subs_months.lm									<- lm(formula = lda_bestSubset_reg_formula, data = Data_y_12lda_months)
+
+# Make predictions for regression model for each x val
+predictYlinregress <- predict(subs_months.lm,Data_y_12lda_months)
+
+# Error in subset linear regression model
+errval <- subs_months.lm$residuals  # same as data$Y - predictedY
+linregress_RMSE <- rmse(errval)   
+print(paste('lda_subset_lin_regress RMSE = ', 
+            linregress_RMSE))
+
+
+### Support Vector Regression (SVR) ###
+require(e1071)
+
+lda_full_var_formula.svm  <- svm(formula = lda_full_var_formula, data = Data_y_12lda_months,
+                                 svm.type="regression", kernel.type="linear")
+predictY_full_svr <- predict(lda_full_var_formula.svm,Data_y_12lda_months)
+
+subs_months.svm						<- svm(formula = lda_bestSubset_reg_formula, data = Data_y_12lda_months,
+                            svm.type="regression", kernel.type="linear")
+predictYsvr <- predict(subs_months.svm,Data_y_12lda_months)
+
+# Radial Kernel
+lda_full_var_formula.svm_rad  <- svm(formula = lda_full_var_formula, data = Data_y_12lda_months,
+                                     svm.type="regression", kernel.type="radial")
+predictY_full_svr_rad <- predict(lda_full_var_formula.svm_rad,Data_y_12lda_months)
+
+subs_months.svm_rad						<- svm(formula = lda_bestSubset_reg_formula, data = Data_y_12lda_months,
+                                svm.type="regression", kernel.type="radial")
+predictYsvr_rad <- predict(subs_months.svm_rad,Data_y_12lda_months)
+
+#RMSE full set linear
+errval_fullset_lin <- Data_y_12lda_months$Growth_Rate-predictY_full_svr
+svr_RMSE_fullset_lin <- rmse(errval_fullset_lin)   
+print(paste('svr RMSE of full set = ', 
+            svr_RMSE_fullset_lin))
+
+#RMSE subset linear
+errval_subset_lin <- Data_y_12lda_months$Growth_Rate-predictYsvr
+svr_RMSE_subset_lin <- rmse(errval_subset_lin)   
+print(paste('svr RMSE of subset = ', 
+            svr_RMSE_subset_lin))
+
+#RMSE full set radial
+errval_fullset_rad <- Data_y_12lda_months$Growth_Rate-predictY_full_svr_rad
+svr_RMSE_fullset_rad <- rmse(errval_fullset_rad)   
+print(paste('svr RMSE of full set = ', 
+            svr_RMSE_fullset_rad))
+
+#RMSE subset radial
+errval_subset_rad <- Data_y_12lda_months$Growth_Rate-predictYsvr_rad
+svr_RMSE_subset_rad <- rmse(errval_subset_rad)   
+print(paste('svr RMSE of subset = ', 
+            svr_RMSE_subset_rad))
+
+# Tuning SVR model by varying values of maximum allowable error and cost parameter
+#Tune the SVR model
+Opt_Model_SVR_full <- tune(svm, lda_full_var_formula, data=Data_y_12lda_months,ranges=list(elsilon=seq(0,1,0.1), cost=1:100))
+Opt_Model_SVR_subset <- tune(svm, lda_bestSubset_reg_formula, data=Data_y_12lda_months,ranges=list(elsilon=seq(0,1,0.1), cost=1:100))
+
+Opt_Model_SVR_full1 <- tune.svm(lda_full_var_formula, data=Data_y_12lda_months, gamma = 2^(-1:5), cost = 2^(-1:2))
+Opt_Model_SVR_subset1 <- tune.svm(lda_bestSubset_reg_formula, data=Data_y_12lda_months, gamma = 2^(-10:-2), cost = 2^(-2:2))
+
+#Print optimum value of parameters
+print(Opt_Model_SVR_full)
+print(Opt_Model_SVR_subset)
+
+#Plot the perfrormance of SVR Regression model
+plot(Opt_Model_SVR_full)
+plot(Opt_Model_SVR_subset)
+
+#Find out the best models
+BstModel_full=Opt_Model_SVR_full$best.model
+BstModel_subset=Opt_Model_SVR_subset$best.model
+
+#Predict Y using best models
+PredYBst_full=predict(BstModel_full,Data_y_12lda_months)
+PredYBst_subset=predict(BstModel_subset,Data_y_12lda_months)
+
+## Calculate RMSE of the best model 
+# RMSE full set
+errval_fullset_Bst <- Data_y_12lda_months$Growth_Rate-PredYBst_full
+svr_RMSE_fullset_Bst <- rmse(errval_fullset_Bst)   
+print(paste('Best SVR RMSE of full set = ', 
+            svr_RMSE_fullset_Bst))
+
+# RMSE subset
+errval_subset_Bst <- Data_y_12lda_months$Growth_Rate-PredYBst_subset
+svr_RMSE_subset_Bst <- rmse(errval_subset_Bst)   
+print(paste('Best SVR RMSE of subset = ', 
+            svr_RMSE_subset_Bst))
+
+
+## Let's visualize how good the prediction works
+# 1) Linear model with full set
+Actual <- growth
+Predicted <- predictY_full_linregress
+p <- ggplot(data = Data_y_12lda_months,
+            mapping = aes(x = Predicted,
+                          y=Actual))
+p + geom_point() + geom_smooth() 
+
+# 2) Linear model with best subset
+Predicted <- predictYlinregress
+p2 <- ggplot(data = Data_y_12lda_months,
+             mapping = aes(x = Predicted,
+                           y=Actual))
+p2 + geom_point() + geom_smooth() 
+
+# 3) SVR model with full set
+Predicted <- PredYBst_full
+p3 <- ggplot(data = Data_y_12lda_months,
+             mapping = aes(x = Predicted,
+                           y=Actual))
+p3 + geom_point() + geom_smooth()
+
+# 4) SVR model with best subset
+Predicted <- PredYBst_subset
+p4 <- ggplot(data = Data_y_12lda_months,
+             mapping = aes(x = Predicted,
+                           y=Actual))
+p4 + geom_point() + geom_smooth() 
+
+
 
 
 
